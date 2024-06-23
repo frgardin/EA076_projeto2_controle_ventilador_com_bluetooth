@@ -1,6 +1,5 @@
-
+#include <Arduino.h>
 #include <LiquidCrystal.h>
-#include <avr/io.h>
 #include <Wire.h>
 
 #define PIN_L293D_EN1 3
@@ -23,12 +22,17 @@ LiquidCrystal lcd(LCD_RS, LCD_EN, LCD_D4, LCD_D5, LCD_D6, LCD_D7);
 
 const long MAX_COUNT_PWM = OCR2A_VALUE;
 const float PERIOD = 0.0001;
+const float PRESCALER = 256;
+const float F_ARDUINO = 16000000;
+const float FREQ_PWM = 1 / ((PRESCALER / F_ARDUINO) * 2.0 * (float)OCR2A_VALUE);
 volatile long counterPwm = 0;
 volatile long counter = 0;
 volatile long actualSpeed = 0;
 volatile bool isClockwise = false;
-volatile int displayId = 0;
 String command = "";
+String LCD_DISPLAY_ROT_1 = "ROTACAO:";
+String LCD_DISPLAY_ROT_2 = " RPM";
+String LCD_DISPLAY_ESTIMATIVE = "  (ESTIMATIVA)  ";
 
 int getVelocityByPercentage(long percent)
 {
@@ -55,16 +59,16 @@ String readCommand()
     return "";
 }
 
+void setSpeed(long speed)
+{
+    OCR2B = getVelocityByPercentage(speed);
+}
+
 void stop()
 {
     digitalWrite(PIN_L293D_IN1, LOW);
     digitalWrite(PIN_L293D_IN2, LOW);
     setSpeed(0);
-}
-
-void setSpeed(long speed)
-{
-    OCR2B = getVelocityByPercentage(speed);
 }
 
 void setClockwise()
@@ -99,38 +103,24 @@ void setExaust()
     setAntiClockwise();
 }
 
-void printLCDVent()
-{
-    lcd.home();
-    lcd.print("VENTILADOR      ");
-}
-
-void printLCDExaust()
-{
-    lcd.home();
-    lcd.print("EXAUSTOR        ");
-}
-
-void printLCDStop()
-{
-    lcd.home();
-    lcd.print("PARADO          ");
-    lcd.setCursor(0, 1);
-    lcd.print("VEL: 0%         ");
-}
-
-void printLCDVel(int speed)
-{
-    lcd.setCursor(0, 1);
-    lcd.print("VEL: " + String(speed) + "%         ");
-}
-
 void cleanCounters()
 {
     cli();
     counter = 0;
     counterPwm = 0;
     sei();
+}
+
+
+float getFrequency()
+{
+    float counter1_aux = (float)counter;
+    float counter2_aux = (float)counterPwm;
+    if (counter >= 20000)
+    {
+        cleanCounters();
+    }
+    return (counter1_aux / counter2_aux) * FREQ_PWM * 60.0;
 }
 
 void executeCommand(String cmd)
@@ -153,7 +143,6 @@ void executeCommand(String cmd)
         {
             setSpeed(speed);
             actualSpeed = speed;
-            printLCDVel(speed);
             Serial.println("OK VEL " + String(speed) + "%");
         }
         else
@@ -165,20 +154,18 @@ void executeCommand(String cmd)
     {
         setVent();
         setSpeed(actualSpeed);
-        printLCDVent();
         Serial.println("OK VENT");
     }
     else if (cmd == "EXAUST")
     {
         setExaust();
         setSpeed(actualSpeed);
-        printLCDExaust();
         Serial.println("OK EXAUST");
     }
     else if (cmd == "PARA")
     {
         stop();
-        printLCDStop();
+        actualSpeed = 0;
         Serial.println("OK PARA");
     }
     else if (cmd == "RETVEL")
@@ -191,20 +178,35 @@ void executeCommand(String cmd)
     }
 }
 
+void printLCD(int frequency)
+{
+    lcd.clear();
+    lcd.home();
+    if (frequency > 999)
+    {
+        lcd.print(LCD_DISPLAY_ROT_1 + String(frequency) + LCD_DISPLAY_ROT_2);
+    }
+    else if(frequency > 99)
+    {
+        lcd.print(LCD_DISPLAY_ROT_1 + " " + String(frequency) + LCD_DISPLAY_ROT_2);
+    }
+    else if(frequency > 9)
+    {
+        lcd.print(LCD_DISPLAY_ROT_1 + "  " + String(frequency) + LCD_DISPLAY_ROT_2);
+    }
+    else
+    {
+        lcd.print(LCD_DISPLAY_ROT_1 + "   " + String(frequency) + LCD_DISPLAY_ROT_2);
+    }
+    lcd.setCursor(0, 1);
+    lcd.print(LCD_DISPLAY_ESTIMATIVE);
+}
+
+
 void setupLCD()
 {
     lcd.begin(SIZE_LCD_X, SIZE_LCD_Y);
-    lcd.clear();
-    lcd.home();
-    lcd.print("PARADO");
-    lcd.setCursor(0, 1);
-    lcd.print("VEL: 0%");
-}
-
-void setupTemps()
-{
-    setupTemp1();
-    setupTemp0();
+    printLCD(0);
 }
 
 void setupTemp0()
@@ -234,15 +236,11 @@ void setupTemp1()
     DDRD |= 0b00001000;
 }
 
-void setupPins()
+
+void setupTemps()
 {
-    pinMode(2, INPUT);
-    attachInterrupt(digitalPinToInterrupt(2), incrementCounter, CHANGE);
-    pinMode(PIN_L293D_IN1, OUTPUT);
-    pinMode(PIN_L293D_IN2, OUTPUT);
-    digitalWrite(PIN_L293D_IN1, LOW);
-    digitalWrite(PIN_L293D_IN2, LOW);
-    OCR2B = getVelocityByPercentage(0);
+    setupTemp1();
+    setupTemp0();
 }
 
 void incrementCounter()
@@ -250,70 +248,50 @@ void incrementCounter()
     counterPwm++;
 }
 
+void setupPins()
+{
+    pinMode(2, INPUT);
+    attachInterrupt(digitalPinToInterrupt(2), incrementCounter, RISING);
+    pinMode(PIN_L293D_IN1, OUTPUT);
+    pinMode(PIN_L293D_IN2, OUTPUT);
+    digitalWrite(PIN_L293D_IN1, LOW);
+    digitalWrite(PIN_L293D_IN2, LOW);
+    OCR2B = getVelocityByPercentage(0);
+}
+
 ISR(TIMER0_COMPA_vect)
 {
     counter++;
 }
 
-float getFrequency()
-{
-
-    float counter1_aux = (float)counter;
-    float counter2_aux = (float)counterPwm;
-    if (counter >= 20000)
-    {
-        cleanCounters();
-    }
-    return (counter1_aux * 0.01 / (PULSE_NUMBER * PERIOD * counter2_aux)) * 60 / 2;
-}
 
 void setupWire()
 {
     Wire.begin();
 }
 
-String getByteLsb(int divisor, String actualLsb)
+void sendWireInfo(int displayBytes)
 {
-    for (int i = 3; i >= 0; i--)
-    {
-        actualLsb += bitRead((round(getFrequency())) % divisor, i);
-    }
-    return actualLsb;
+    Wire.beginTransmission(0x20);
+    Wire.write(displayBytes);
+    Wire.endTransmission();
 }
 
 void sevenSegDisplay()
 {
-    String byteMsb = "1111";
-    String byteLsb = "\0";
-    if (!(counter % 2))
+    int displayId = 4;
+    int frequency = round(getFrequency());
+    while (displayId--)
     {
-        displayId = (displayId + 1) % 4;
-        if (displayId == 0)
-        {
-            byteLsb = getByteLsb(1000, byteLsb);
-            byteMsb = "0111";
-        }
-        else if (displayId == 1)
-        {
-            byteLsb = getByteLsb(100, byteLsb);
-            byteMsb = "1011";
-        }
-        else if (displayId == 2)
-        {
-            byteLsb = getByteLsb(10, byteLsb);
-            byteMsb = "1101";
-        }
-        else
-        {
-            byteLsb = getByteLsb(1, byteLsb);
-            byteMsb = "1110";
-        }
+        printLCD(frequency);
+        int addressesDisplay7seg[4] = {0xE0, 0xD0, 0xB0, 0x70};
+        int possiblePowers[4] = {1, 10, 100, 1000};
+        int divisor = possiblePowers[displayId];
+        int display = ((int)(frequency / divisor)) % 10;
+        int displayMem = addressesDisplay7seg[displayId];
+        int displayBytes = displayMem | display;
+        sendWireInfo(displayBytes);
     }
-    String display_bytes = byteMsb + byteLsb;
-    int I2C_number = strtol(display_bytes.c_str(), NULL, 2);
-    Wire.beginTransmission(0x20);
-    Wire.write(I2C_number);
-    Wire.endTransmission();
 }
 
 void setup()
@@ -321,10 +299,6 @@ void setup()
     cli();
     Serial.begin(9600);
     setupWire();
-    setupTemps();
-    setupPins();
-    setupLCD();
-    sei();
 }
 
 void loop()
@@ -334,5 +308,8 @@ void loop()
     {
         executeCommand(cmd);
     }
-    sevenSegDisplay();
+    if (counter > 2000)
+    {
+        sevenSegDisplay();
+    }
 }
