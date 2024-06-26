@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <LiquidCrystal.h>
+#include <SoftwareSerial.h>
 #include <Wire.h>
 
 #define PIN_L293D_EN1 3
@@ -19,6 +20,7 @@
 #define PULSE_NUMBER 2
 
 LiquidCrystal lcd(LCD_RS, LCD_EN, LCD_D4, LCD_D5, LCD_D6, LCD_D7);
+SoftwareSerial bluetooth(0, 1);
 
 const long MAX_COUNT_PWM = OCR2A_VALUE;
 const float PERIOD = 0.0001;
@@ -42,9 +44,9 @@ int getVelocityByPercentage(long percent)
 
 String readCommand()
 {
-    while (Serial.available())
+    while (bluetooth.available())
     {
-        char c = Serial.read();
+        char c = bluetooth.read();
         if (c == '*')
         {
             String tmpCommand = command;
@@ -127,7 +129,7 @@ void executeCommand(String cmd)
 {
     if (cmd == "")
     {
-        Serial.println("ERRO: COMANDO INEXISTENTE");
+        bluetooth.write("ERRO: COMANDO INEXISTENTE\n");
         return;
     }
 
@@ -135,7 +137,7 @@ void executeCommand(String cmd)
     {
         if (cmd.length() <= 3)
         {
-            Serial.println("ERRO: PARÂMETRO AUSENTE");
+            bluetooth.write("ERRO: PARÂMETRO AUSENTE\n");
             return;
         }
         int speed = cmd.substring(3).toInt();
@@ -143,38 +145,38 @@ void executeCommand(String cmd)
         {
             setSpeed(speed);
             actualSpeed = speed;
-            Serial.println("OK VEL " + String(speed) + "%");
+            bluetooth.write(("OK VEL " + String(speed) + "%\n").c_str());
         }
         else
         {
-            Serial.println("ERRO: PARÂMETRO INCORRETO");
+            bluetooth.write("ERRO: PARÂMETRO INCORRETO\n");
         }
     }
     else if (cmd == "VENT")
     {
         setVent();
         setSpeed(actualSpeed);
-        Serial.println("OK VENT");
+        bluetooth.write("OK VENT\n");
     }
     else if (cmd == "EXAUST")
     {
         setExaust();
         setSpeed(actualSpeed);
-        Serial.println("OK EXAUST");
+        bluetooth.write("OK EXAUST\n");
     }
     else if (cmd == "PARA")
     {
         stop();
         actualSpeed = 0;
-        Serial.println("OK PARA");
+        bluetooth.write("OK PARA\n");
     }
     else if (cmd == "RETVEL")
     {
-        Serial.println("VEL: " + String(getFrequency()) + " RPM");
+        bluetooth.write(("VEL: " + String(getFrequency()) + " RPM\n").c_str());
     }
     else
     {
-        Serial.println("ERRO: COMANDO INEXISTENTE");
+        bluetooth.write("ERRO: COMANDO INEXISTENTE\n");
     }
 }
 
@@ -297,8 +299,12 @@ void sevenSegDisplay()
 void setup()
 {
     cli();
-    Serial.begin(9600);
+    bluetooth.begin(9600);
     setupWire();
+    setupTemps();
+    setupPins();
+    setupLCD();
+    sei();
 }
 
 void loop()
