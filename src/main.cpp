@@ -39,9 +39,6 @@ SoftwareSerial bluetooth(PIN_BLUETOOTH_TX, PIN_BLUETOOTH_RX); //inicializa Seria
 const long MAX_COUNT_PWM = OCR2A_VALUE; //define o valor maximo do pwm
 
 const float PERIOD = 0.0001; // armazena periodo do counter da interrupçao
-const float PRESCALER = 256; // armazena prescaler
-const float F_ARDUINO = 16000000; // armazena frequencia do arduino
-const float FREQ_PWM = 1 / ((PRESCALER / F_ARDUINO) * 2.0 * (float)OCR2A_VALUE); //calcula frequencia do pwm
 
 volatile long counterPwm = 0; // inicializa counter do pwm
 volatile long counter = 0; // inicializa counter da interrupçao (utilizada basicamente para sincronia)
@@ -62,9 +59,9 @@ String LCD_DISPLAY_ESTIMATIVE = "  (ESTIMATIVA)  ";
  */
 int getVelocityByPercentage(long percent)
 {
-    const long MAX_PERCENT = 100;
-    const long REFERENCE = 0;
-    return (int)map(percent, REFERENCE, MAX_PERCENT, REFERENCE, MAX_COUNT_PWM);
+    const long MAX_PERCENT = 100; //define valor maximo
+    const long REFERENCE = 0; // define valor minimo
+    return (int)map(percent, REFERENCE, MAX_PERCENT, REFERENCE, MAX_COUNT_PWM); // retorna normalização entre a config do pwm e percentual
 }
 
 /**
@@ -73,21 +70,21 @@ int getVelocityByPercentage(long percent)
  */
 String readCommand()
 {
-    while (bluetooth.available())
+    while (bluetooth.available()) //verifica se o comando está disponível
     {
-        char c = bluetooth.read();
-        if (c == '*')
+        char c = bluetooth.read(); // le comando
+        if (c == '*') //se caso o char for * armazena o comando e limpa variavel global comando
         {
             String tmpCommand = command;
             command = "";
-            return tmpCommand;
+            return tmpCommand; //retorna comando
         }
         else
         {
-            command += c;
+            command += c; //fica lendo comando até mandar estrela
         }
     }
-    return "";
+    return ""; //retorna vazio caso n esteja disponivel
 }
 
 /**
@@ -96,7 +93,7 @@ String readCommand()
  */
 void setSpeed(long speed)
 {
-    OCR2B = getVelocityByPercentage(speed);
+    OCR2B = getVelocityByPercentage(speed); //manda velocidade normalizada para o registrador OCR2B
 }
 
 /**
@@ -105,9 +102,10 @@ void setSpeed(long speed)
  */
 void stop()
 {
+    //desabilita as entradas 1 e 2 fazendo com que o motor fique parado
     digitalWrite(PIN_L293D_IN1, LOW);
     digitalWrite(PIN_L293D_IN2, LOW);
-    setSpeed(0);
+    setSpeed(0); // configura velocidade para 0
 }
 
 /**
@@ -116,9 +114,10 @@ void stop()
  */
 void setClockwise()
 {
+    //habilita a entrada 2 e desabilita a 1 fazendo com que o motor fique no sentido horario
     digitalWrite(PIN_L293D_IN1, LOW);
     digitalWrite(PIN_L293D_IN2, HIGH);
-    isClockwise = true;
+    isClockwise = true; // armazena estado atual de rotação
 }
 
 
@@ -128,9 +127,10 @@ void setClockwise()
  */
 void setAntiClockwise()
 {
+    //habilita a entrada 1 e desabilita a 2 fazendo com que o motor fique no sentido antihorario
     digitalWrite(PIN_L293D_IN1, HIGH);
     digitalWrite(PIN_L293D_IN2, LOW);
-    isClockwise = false;
+    isClockwise = false; // armazena estado atual de rotação
 }
 
 /**
@@ -139,11 +139,11 @@ void setAntiClockwise()
  */
 void setVent()
 {
-    if (!isClockwise)
+    if (!isClockwise) //se não estiver no sentido horario para o motor
     {
         stop();
     }
-    setClockwise();
+    setClockwise(); // chama função que configura o motor para girar no sentido horario
 }
 
 /**
@@ -152,11 +152,11 @@ void setVent()
  */
 void setExaust()
 {
-    if (isClockwise)
+    if (isClockwise) //se estiver no sentido horario para motor
     {
         stop();
     }
-    setAntiClockwise();
+    setAntiClockwise(); // chama função que configura o motor para girar no sentido antihorario
 }
 
 
@@ -165,10 +165,10 @@ void setExaust()
  */
 void cleanCounters()
 {
-    cli();
-    counter = 0;
-    counterPwm = 0;
-    sei();
+    cli(); // desabilita interruḉões 
+    counter = 0; // limpa counter de ciclos de maquina
+    counterPwm = 0; // limpa counter de ciclos do motor
+    sei(); // habilita interrupções
 }
 
 /**
@@ -179,11 +179,13 @@ float getFrequency()
 {
     float counter1_aux = (float)counter;
     float counter2_aux = (float)counterPwm;
-    if (counter >= 20000)
+    if (counter >= 20000) // se caso for maior que 20000 ele limpa, apenas para pegar uma medida precisa e não pegar uma velocidade errada
     {
         cleanCounters();
     }
-    return (counter1_aux / counter2_aux) * FREQ_PWM * 60.0;
+     // basicamente uma regra de tres, onde normaliza o contador de pulsos do pwm com o contador de tempo interno do arduino, divide pelo numero de pás que é igual a 2
+     // e divide pela constante de tempo que é o período, e por fim multiplica por 60 para obter a velocidade em rpm
+    return (counter2_aux / counter1_aux) * 60.0 / 2.0 / PERIOD;
 }
 
 /**
@@ -193,56 +195,56 @@ float getFrequency()
  */
 void executeCommand(String cmd)
 {
-    if (cmd == "")
+    if (cmd == "") // caso o comando venha vazio ele dá como comando inexistente
     {
         bluetooth.write("ERRO: COMANDO INEXISTENTE\n");
-        return;
+        return; // n continua a função
     }
 
-    if (cmd.startsWith("VEL"))
+    if (cmd.startsWith("VEL")) // se iniciar com VEL ele começa a trabalhar no ciclo de velocidade
     {
-        if (cmd.length() <= 3)
+        if (cmd.length() <= 3) //verifica o tamanho da string para o erro de parametro ausente
         {
             bluetooth.write("ERRO: PARÂMETRO AUSENTE\n");
             return;
         }
-        int speed = cmd.substring(3).toInt();
-        if (speed >= 0 && speed <= 100)
+        int speed = cmd.substring(3).toInt(); //captura valor numerico
+        if (speed >= 0 && speed <= 100) // verifica range de velocidade
         {
-            setSpeed(speed);
-            actualSpeed = speed;
-            bluetooth.write(("OK VEL " + String(speed) + "%\n").c_str());
+            setSpeed(speed); // configura velocidade
+            actualSpeed = speed; // armazena na variavel global a velocidade atual
+            bluetooth.write(("OK VEL " + String(speed) + "%\n").c_str()); // manda pra serial a mensagem requirida
         }
         else
         {
-            bluetooth.write("ERRO: PARÂMETRO INCORRETO\n");
+            bluetooth.write("ERRO: PARÂMETRO INCORRETO\n"); // caso o parametro venha fora do range manda pra serial o erro de parametro incorreto
         }
     }
-    else if (cmd == "VENT")
+    else if (cmd == "VENT") // caso vent inicia função vent
     {
-        setVent();
-        setSpeed(actualSpeed);
-        bluetooth.write("OK VENT\n");
+        setVent(); // muda o sentido de rotação
+        setSpeed(actualSpeed); // configura velocidade
+        bluetooth.write("OK VENT\n"); // manda mensagem de confirmação para o modulo bluetooth
     }
-    else if (cmd == "EXAUST")
+    else if (cmd == "EXAUST") // caso exaust inicia função exaust
     {
-        setExaust();
-        setSpeed(actualSpeed);
-        bluetooth.write("OK EXAUST\n");
+        setExaust(); // muda o sentido de rotação
+        setSpeed(actualSpeed); // configura velocidade
+        bluetooth.write("OK EXAUST\n"); // manda mensagem de confirmação para o modulo bluetooth
     }
-    else if (cmd == "PARA")
+    else if (cmd == "PARA") // caso para
     {
-        stop();
-        actualSpeed = 0;
-        bluetooth.write("OK PARA\n");
+        stop(); // chama função para parar o ventilador
+        actualSpeed = 0; // muda velocidade atual para zero
+        bluetooth.write("OK PARA\n"); // manda mensagem de confirmação para o modulo bluetooth
     }
-    else if (cmd == "RETVEL")
+    else if (cmd == "RETVEL") // caso retvel
     {
-        bluetooth.write(("VEL: " + String(getFrequency()) + " RPM\n").c_str());
+        bluetooth.write(("VEL: " + String(getFrequency()) + " RPM\n").c_str()); // apenas manda para a serial com a velocidade atual do sistema
     }
     else
     {
-        bluetooth.write("ERRO: COMANDO INEXISTENTE\n");
+        bluetooth.write("ERRO: COMANDO INEXISTENTE\n"); // caso o comando não seja enviado (string vazia), manda para serial esse erro
     }
 }
 
@@ -252,139 +254,182 @@ void executeCommand(String cmd)
  */
 void printLCD(int frequency)
 {
-    lcd.clear();
-    lcd.home();
-    if (frequency > 999)
+    lcd.clear(); // limpa lcd
+    lcd.home(); // seta cursor para posição 0,0
+    if (frequency > 999) // caso maior q 999
     {
-        lcd.print(LCD_DISPLAY_ROT_1 + String(frequency) + LCD_DISPLAY_ROT_2);
+        lcd.print(LCD_DISPLAY_ROT_1 + String(frequency) + LCD_DISPLAY_ROT_2); //printa sem espaço
     }
-    else if(frequency > 99)
+    else if(frequency > 99) //caso maior q 99
     {
-        lcd.print(LCD_DISPLAY_ROT_1 + " " + String(frequency) + LCD_DISPLAY_ROT_2);
+        lcd.print(LCD_DISPLAY_ROT_1 + " " + String(frequency) + LCD_DISPLAY_ROT_2); //printa com um espaço
     }
-    else if(frequency > 9)
+    else if(frequency > 9) //caso maior q 9
     {
-        lcd.print(LCD_DISPLAY_ROT_1 + "  " + String(frequency) + LCD_DISPLAY_ROT_2);
+        lcd.print(LCD_DISPLAY_ROT_1 + "  " + String(frequency) + LCD_DISPLAY_ROT_2); //printa com dois espaços
     }
     else
     {
-        lcd.print(LCD_DISPLAY_ROT_1 + "   " + String(frequency) + LCD_DISPLAY_ROT_2);
+        lcd.print(LCD_DISPLAY_ROT_1 + "   " + String(frequency) + LCD_DISPLAY_ROT_2); //printa com tres espaços
     }
-    lcd.setCursor(0, 1);
-    lcd.print(LCD_DISPLAY_ESTIMATIVE);
+    lcd.setCursor(0, 1); // seta cursor para a posição 0, 1 ou seja segunda linha do lcd
+    lcd.print(LCD_DISPLAY_ESTIMATIVE); // printa estimativa
 }
 
-
+/**
+ * função que realiza o setup do lcd
+ * 
+ */
 void setupLCD()
 {
-    lcd.begin(SIZE_LCD_X, SIZE_LCD_Y);
-    printLCD(0);
+    lcd.begin(SIZE_LCD_X, SIZE_LCD_Y); // configura tamanho do lcd, largura e altura, ou melhor, linhas e colunas
+    printLCD(0); // manda valor zero inicial
 }
 
+/**
+ * Função que configura temporizador zero
+ */
 void setupTemp0()
 {
-    TCCR0A &= 0b00001100;
-    TCCR0A |= 0b00000010;
+    TCCR0A &= 0b00001100; // limpa os bits presentes e mantem os valores reservados
+    TCCR0A |= 0b00000010; // configura 10 habilitando modo ctc, onde uma função é acionada a cada interrupção
 
-    OCR0A = OCR0A_VALUE;
+    OCR0A = OCR0A_VALUE; // armazena o valor de 199 para detectar 200 pulsos, que para um prescaler de 8, e a frequencia do arduino sendo 16MHz, significam um periodo de 0,1 ms
 
-    TCCR0B &= 0b00110000;
-    TCCR0B |= 0b00000010;
+    TCCR0B &= 0b00110000; // mantem reservados e limpa o restante
+    TCCR0B |= 0b00000010; // configura prescaler pra 8
 
-    TIMSK0 &= 0b11111000;
-    TIMSK0 |= 0b00000010;
+    TIMSK0 &= 0b11111000; // mantem reservados e limpa o restante 
+    TIMSK0 |= 0b00000010; // modo que compara com o registrador OCR0A
 }
 
+/**
+ * Função que configura o temporizador um
+ */
 void setupTemp1()
 {
+    //seta os valores dos registradores OCR2A e OCR2B de modo que o periodo de que a saída do pwm fique com
+    // periodo (prescaler / freqArduino) * 2 * OCR2A_VALUE que no nosso caso eh 256 * 2 * 78 / 16M = 2.5ms
     OCR2A = OCR2A_VALUE;
     OCR2B = OCR2B_VALUE;
-    TIMSK2 &= 0b11111000;
+    TIMSK2 &= 0b11111000; //mantem reservados e limpa restante
 
-    TCCR2B = 0b00001110;
+    TCCR2B = 0b00001110; // seta prescaler para 256
 
-    TCCR2A = 0b00100001;
+    TCCR2A = 0b00100001; //configura metodo de comparação com pinos OCR2A e OCR2B
 
-    DDRD |= 0b00001000;
+    DDRD |= 0b00001000; //configura pino 3 como saída
 }
 
-
+/**
+ * Apenas uma função para chamar a função setup de cada temporizador
+ */
 void setupTemps()
 {
     setupTemp1();
     setupTemp0();
 }
 
+/**
+ * Função acionada a cada borda de subida do sensor PHCT202, ou seja incrementa o counter q vai que vinha do motor
+ */
 void incrementCounter()
 {
     counterPwm++;
 }
 
+/**
+ * Configura a pinagem
+ */
 void setupPins()
 {
-    pinMode(2, INPUT);
-    attachInterrupt(digitalPinToInterrupt(2), incrementCounter, RISING);
-    pinMode(PIN_L293D_IN1, OUTPUT);
-    pinMode(PIN_L293D_IN2, OUTPUT);
+    pinMode(2, INPUT); //entrada do circuito do sensor
+    attachInterrupt(digitalPinToInterrupt(2), incrementCounter, RISING); //configura interrupção para modo RISING, subida do pulso no pino 2, chamando a função incrementCounter
+
+    // essas entradas são responsaveis pelo sentido de rotação
+    pinMode(PIN_L293D_IN1, OUTPUT); //configura como saida o pino do ci L293 para a entrada 1
+    pinMode(PIN_L293D_IN2, OUTPUT); //configura como saida o pino do ci L293 para a entrada 2
+    // inicia com ambas em nivel logico baixo
     digitalWrite(PIN_L293D_IN1, LOW);
     digitalWrite(PIN_L293D_IN2, LOW);
+    // armazena no registrador responsavel pela velocidade o valor de zero
     OCR2B = getVelocityByPercentage(0);
 }
 
+/**
+ * Função ativada pela interrupção que define o contador de tempo do sistema, o que é crucial para calcular a frequencia do motor
+ */
 ISR(TIMER0_COMPA_vect)
 {
     counter++;
 }
 
-
+/**
+ * inicializa biblioteca Wire
+ */ 
 void setupWire()
 {
     Wire.begin();
 }
 
+/**
+ * Função responsavel por enviar dados para os displays de 7 segmentos, onde os primeiros quatro bits
+ * sao referentes a posição do display de 7 segmentos, e os ultimos 4 bits é o valor a ser mostrado no
+ * display
+ * @param displayBytes byte contendo as informações citadas acima
+ */
 void sendWireInfo(int displayBytes)
 {
-    Wire.beginTransmission(0x20);
-    Wire.write(displayBytes);
-    Wire.endTransmission();
+    Wire.beginTransmission(0x20); // inicia transmissão com protocolo i2C neste canal
+    Wire.write(displayBytes); //escreve
+    Wire.endTransmission(); //finaliza transmissão
 }
 
+/**
+ * Função que cria e manda o byte para os 4 displays de sete segmentos 
+ */
 void sevenSegDisplay()
 {
-    int displayId = 4;
-    int frequency = round(getFrequency());
+    int displayId = 4; // inicializa a variavel display id, onde os displays tem ids 0,1,2,3. Esta inicializa em 4 devido ao primeiro decrement no while
+    int frequency = round(getFrequency()); // captura a frequencia e arredonda
     while (displayId--)
     {
-        printLCD(frequency);
-        int addressesDisplay7seg[4] = {0xE0, 0xD0, 0xB0, 0x70};
-        int possiblePowers[4] = {1, 10, 100, 1000};
-        int divisor = possiblePowers[displayId];
-        int display = ((int)(frequency / divisor)) % 10;
-        int displayMem = addressesDisplay7seg[displayId];
-        int displayBytes = displayMem | display;
-        sendWireInfo(displayBytes);
+        printLCD(frequency); //printa frequencia no lcd
+        int addressesDisplay7seg[4] = {0xE0, 0xD0, 0xB0, 0x70}; // define array de posições de cada display de 7 segmentos
+        int possiblePowers[4] = {1, 10, 100, 1000}; // define array de divisores 
+        int divisor = possiblePowers[displayId]; // captura divisor referente de acordo com o display id
+        int display = ((int)(frequency / divisor)) % 10; // captura e armazena algarismo referente, onde caso tenhamos a frequencia de 1234, e o divisor seja 1234, o algarismo 1 eh capturado
+        int displayMem = addressesDisplay7seg[displayId]; // armazena posição referente ao displayId
+        int displayBytes = displayMem | display; // concatena ambos os nibbles transformando num byte, onde os primeiros 4 digitos eh a posição do display e os ultimos 4 o valor a ser enviado
+        sendWireInfo(displayBytes); // chama função que manda o byte para os displays de sete segmentos  
     }
 }
 
+/**
+ * função setup padrao do arduino que chama todos os setups necessários
+ */
 void setup()
 {
-    cli();
-    bluetooth.begin(BAUD_RATE);
-    setupWire();
-    setupTemps();
-    setupPins();
-    setupLCD();
-    sei();
+    cli(); //desabilita interrupções
+    bluetooth.begin(BAUD_RATE); //inicializa bluetooth
+    setupWire(); // inicializa wire
+    setupTemps(); // inicializa temporizadores que configuram as interrupções
+    setupPins(); // inicializa pinos
+    setupLCD(); // inicializa lcd
+    sei(); // habilita interrupções
 }
 
+/**
+ * função loop padrao do arduino
+ */
 void loop()
 {
-    String cmd = readCommand();
-    if (cmd != "")
+    String cmd = readCommand(); // chama função que lê comando
+    if (cmd != "") //caso o comando seja diferente de uma string vazia chama função que executa comando
     {
         executeCommand(cmd);
     }
-    if (counter > 2000)
+    if (counter > 1000) //caso tenha se passado sem ciclos de relogio chama função que printa a frequencia do motorem rpm tanto no display lcd quanto no 7 segmentos
     {
         sevenSegDisplay();
     }
